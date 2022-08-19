@@ -37,8 +37,8 @@ if __name__ == '__main__':
 
         model_cfg = cur_folder / 'config.yaml'
         model_py = cur_folder / 'model.py'
-        kitti_dataset = cur_folder / 'KITTI.yaml'        
-        vccars_dataset = cur_folder / 'VC_cars.yaml'        
+        kitti_dataset = cur_folder / 'kitti_cars.yaml'        
+        vccars_dataset = cur_folder / 'vc_cars.yaml'        
         resume_flag = (cur_folder / '.resume').exists()
         
         if not model_cfg.exists():
@@ -49,10 +49,10 @@ if __name__ == '__main__':
             
         model_name = cfg['model']['NAME']
         
-        dst_modelcfg = f'cfgs/VC_models/{model_name}.yaml'
+        dst_modelcfg = f'cfgs/VCN_models/{model_name}.yaml'
         dst_modelpy = f'models/{model_name}.py'
-        dst_kitti = 'cfgs/dataset_configs/KITTI.yaml'
-        dst_vccars = 'cfgs/dataset_configs/VC_cars.yaml'
+        dst_kitti = 'cfgs/dataset_configs/kitti_cars.yaml'
+        dst_vccars = 'cfgs/dataset_configs/vc_cars.yaml'
 
         shutil.copyfile(model_cfg, dst_modelcfg)
         shutil.copyfile(model_py, dst_modelpy)
