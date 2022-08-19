@@ -12,16 +12,16 @@ scheduler: {
 }}
 
 dataset : {
-  train : { _base_: /SEEv2/see/surface_completion/partiasc/cfgs/dataset_configs/VC_cars.yaml, 
+  train : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
             others: {subset: 'train', fixed_input: True}},
-  val : { _base_: /SEEv2/see/surface_completion/partiasc/cfgs/dataset_configs/VC_cars.yaml, 
+  val : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
             others: {subset: 'val', fixed_input: True}},
-  test : { _base_: /SEEv2/see/surface_completion/partiasc/cfgs/dataset_configs/KITTI.yaml, 
+  test : { _base_: /VCN/cfgs/dataset_configs/kitti_cars.yaml, 
             others: {subset: 'test', fixed_input: True}}
 }
             
 model : { 
-  NAME: PartiaSC_VC, 
+  NAME: VCN_VC, 
   num_pred: 16384, 
   encoder_channel: 1024,
   losses: ['partial', 'coarse','translation','rotation','dims'],  
@@ -29,6 +29,6 @@ model : {
 }
 total_bs : 16
 step_per_update : 1
-max_epoch : 50
+max_epoch : 30
 
 consider_metric: CDL1

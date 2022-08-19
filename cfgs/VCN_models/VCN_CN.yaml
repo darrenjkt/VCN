@@ -21,7 +21,7 @@ dataset : {
 }
             
 model : { 
-  NAME: PartiaSC_CN, 
+  NAME: VCN_CN, 
   num_pred: 16384, 
   encoder_channel: 1024,
   losses: ['partial', 'coarse'],  

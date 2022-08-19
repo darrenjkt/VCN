@@ -1,11 +1,11 @@
 from setuptools import find_packages, setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-# pip install -e .
+# pip install -e . --user
 # using setup.py develop somehow fails at "open3d==0.14.1" saying it can't find module
 
-setup(name='partialsc',
-      version='0.1',
+setup(name='vcn',
+      version='1.0',
       description='Complete the surface of incomplete lidar point clouds',      
       author='Darren Tsai',
       author_email='d.tsai@acfr.usyd.edu.au',

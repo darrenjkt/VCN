@@ -53,7 +53,7 @@ class FeatureEncoder(nn.Module):
 
     
 @MODELS.register_module()
-class PartialSC_CN(nn.Module):
+class VCN_CN(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.sel_k = 30 # select nearest 30 points to each input point

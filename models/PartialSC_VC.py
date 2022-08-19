@@ -107,7 +107,7 @@ class FeatureEncoder(nn.Module):
 
     
 @MODELS.register_module()
-class VCN_VC(nn.Module):
+class PartialSC_VC(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.sel_k = 30 # select nearest 30 points to each input point
@@ -130,6 +130,15 @@ class VCN_VC(nn.Module):
         self.encoder = FeatureEncoder([3, 128, 256, 512, 512, self.number_coarse])
         self.shape_fc = fc_layers([1024, 1024, 1024, 3*self.number_coarse], last_as_linear=True) # canonical shape
         
+        self.final_conv = nn.Sequential(
+            nn.Conv1d(1024+3+2,512,1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(512,512,1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(512,3,1)
+        )
         self.build_loss_func()
 
     def build_loss_func(self):
