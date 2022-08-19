@@ -23,7 +23,11 @@ class LIDAR(data.Dataset):
         assert self.subset in ['val', 'test'], f"{self.subset} is invalid. Please specify val or test."
 
         self.partial_points_path = str(self.data_dir / self.subset / 'partial' / '%s.pcd')
-        self.label_path = str(self.data_dir / self.subset / 'label' / '%s.pkl')        
+        self.label_path = str(self.data_dir / self.subset / 'label.pkl')        
+        with open(self.label_path, 'rb') as fp:
+            self.labels = pickle.load(fp)
+
+        self.dataset_name = self.labels['dataset']
         self.files_path = self.data_dir / self.subset / 'file_list.txt'        
         self.file_list = self._get_file_list(config)
         self.fixed_input = config.fixed_input
@@ -39,7 +43,7 @@ class LIDAR(data.Dataset):
             file_list.append({
                 'model_id': fname,
                 'partial_path': self.partial_points_path % (fname),
-                'label_path': self.label_path % (fname)
+                'label_path': (fname)
             })
 
         print_log('Complete collecting files. Total files: %d' % (len(file_list)), logger='KITTI_DATASET')
@@ -59,13 +63,15 @@ class LIDAR(data.Dataset):
     def __getitem__(self, idx):
         sample = self.file_list[idx]
         data = {}
-
+        
         # Randomly choose a view from the model renderings
         data['partial'] = np.asarray(o3d.io.read_point_cloud(sample['partial_path']).points)
         data['complete'] = None        
-        with open(sample['label_path'], 'rb') as f:
-            data['label'] = pickle.load(f)
-            data['label']['num_pts'] = data['partial'].shape[0]    
+        # with open(sample['label_path'], 'rb') as f:
+        #     data['label'] = pickle.load(f)
+        #     data['label']['num_pts'] = data['partial'].shape[0]    
+
+        data['label'] = self.labels[sample['label_path']]
         
         if self.transforms is not None:
             data = self.transforms(data)
@@ -104,7 +110,7 @@ class LIDAR(data.Dataset):
             label = data[2]
             bbox_pts.append(label['bbox_pts'])
             gt_boxes.append(label['gtbox'])
-            dataset_name.append(label['dataset'])
+            dataset_name.append(self.dataset_name)
             partial.append(data[0])
             ids.append(label['pc_id'])
             num_pts.append(label['num_pts'])

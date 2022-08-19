@@ -4,42 +4,33 @@ import torch.nn as nn
 from utils.vis_utils import *
 from utils import misc
 from scipy.spatial import cKDTree
-
-def partial_with_KDTree(partial_pc, complete_pc, k, surface_pts=1024):
+    
+def partial_with_KDTree(partial_pc, complete_pc, k=30, surface_pts=1024):
     """
-    Same function but faster than get_partial_mesh, since it uses KDTree
+    This builds a KDTree for the pointcloud so it's a lot faster than
+    "get_partial_mesh". These two functions do the same thing.
 
-    partial_pc (numpy N 3): Input sparse point cloud 
-    complete_pc (numpy N 3): Dense complete surface/ coarse prediction
+    partial_pc (torch N 3): Input sparse point cloud 
+    complete_pc (torch N 3): Dense complete surface/ coarse prediction
     k (int): Number of nearest points to sample
 
     Returns pc (N 3)
 
     """
     assert len(partial_pc.shape) == 2, f'partial_pc shape is {partial_pc.shape}, must have shape (1024,3)'
-    if partial_pc.requires_grad:
-        partial_pc = partial_pc.detach()
-    if isinstance(partial_pc, torch.Tensor):
-        partial_pc = partial_pc.cpu().numpy()
-    if complete_pc.requires_grad:
-        complete_pc = complete_pc.detach()
-    if isinstance(complete_pc, torch.Tensor):
-        complete_pc = complete_pc.cpu().numpy()
-
     surface_idx = []
-    kd = cKDTree(complete_pc)
-    partial_pc = np.unique(partial_pc, axis=0)
-    for i in range(len(partial_pc)):
-        knn_idx = kd.query(partial_pc[i], k=k)[1]
+    kd = cKDTree(complete_pc.detach().cpu().numpy())
+    partial_pc_np = np.unique(partial_pc.cpu().numpy(), axis=0)
+    for i in range(len(partial_pc_np)):
+        knn_idx = kd.query(partial_pc_np[i], k=k)[1]
         surface_idx.extend(knn_idx)
-    
-    surface_idx = list(set(surface_idx))
-    sel_complete = complete_pc[surface_idx]
-    repeat_factor = int(np.ceil(surface_pts/sel_complete.shape[0]))    
-    sel_sampled = np.tile(sel_complete, [surface_pts, 1])[:surface_pts,:]
-    
+
+    surface_idx = torch.tensor(list(set(surface_idx))).to(complete_pc.get_device())
+    sel_complete = torch.index_select(complete_pc, dim=0, index=surface_idx)
+    repeat_factor = int(np.ceil(surface_pts/sel_complete.shape[0]))
+    sel_sampled = sel_complete.repeat(repeat_factor, 1)[:surface_pts,:]
     return sel_sampled
-    
+
 def get_partial_mesh(partial_pc, complete_pc, k=30, surface_pts=1024):
     """
     For each point in the partial pc, we find the k nearest points in 
@@ -76,9 +67,8 @@ def get_partial_mesh_batch(batch_partial, batch_complete, k=20, surface_pts=1024
 
     Returns pc (B N 3)
     """
-    surfaces = [partial_with_KDTree(partial, complete, k=k, surface_pts=surface_pts)[np.newaxis,...] for partial, complete in zip(batch_partial, batch_complete)]
-    return np.concatenate(surfaces, axis=0)
-
+    surfaces = [partial_with_KDTree(partial, complete, k=k, surface_pts=surface_pts).unsqueeze(0) for partial, complete in zip(batch_partial, batch_complete)]
+    return torch.cat(surfaces, dim=0)
 
 def get_largest_cluster(pc, eps=0.4, min_points=1, istensor=False, total_pts=1024):
     """

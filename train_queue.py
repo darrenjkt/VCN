@@ -11,7 +11,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Args.')
     parser.add_argument('--gpus', type=str, help='gpu id(s)')
     parser.add_argument('--dist', action='store_true', help='use multi-gpu distributed training')
-    parser.add_argument('--dir_name', type=str, help='queue folder for specific gpu')
     args = parser.parse_args()
     
     if args.gpus is None:
@@ -64,7 +63,7 @@ if __name__ == '__main__':
             os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
             port = str(random.randint(0,15000))
 
-            call = ["bash","./scripts/dist_train.sh",str(num_gpus),port,"--config",f"./cfgs/VC_models/{model_name}.yaml","--exp_name",exp_name]
+            call = ["bash","./scripts/dist_train.sh",str(num_gpus),port,"--config",f"cfgs/VCN_models/{model_name}.yaml","--exp_name",exp_name]
             if resume_flag:
                 call.append("--resume")
             ret = subprocess.call(call)
@@ -72,7 +71,7 @@ if __name__ == '__main__':
         else:
             assert num_gpus == 1, "Please specify just 1 GPU if not using distributed training. Else specify --dist."
 
-            call = ["bash","./scripts/train.sh",args.gpus,"--config",f"./cfgs/VC_models/{model_name}.yaml","--exp_name",exp_name]
+            call = ["bash","./scripts/train.sh",args.gpus,"--config",f"cfgs/VCN_models/{model_name}.yaml","--exp_name",exp_name]
             if resume_flag:
                 call.append("--resume")
             ret = subprocess.call(call)

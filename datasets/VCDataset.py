@@ -41,7 +41,7 @@ class VC(data.Dataset):
 
         self.model_id_path = self.data_dir / self.subset / 'model_ids.txt'        
         self.npoints = config.N_POINTS        
-        self.nviews = config.USE_NVIEWS_PER_MODEL if self.subset == 'train' else 4
+        self.nviews = config.USE_NVIEWS_PER_MODEL if self.subset == 'train' else 6
 
         with open(self.model_id_path) as f:
             self.model_ids = [line.split('\n')[0] for line in f.readlines()]

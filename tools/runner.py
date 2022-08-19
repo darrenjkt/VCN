@@ -323,6 +323,7 @@ def test_net_vc(args, config):
     logger = get_logger(args.log_name)
     print_log('Tester start ... ', logger = logger)
     _, test_dataloader = builder.dataset_builder(args, config.dataset.test)
+    print(len(test_dataloader))
  
     base_model = builder.model_builder(config.model)
     # load checkpoints

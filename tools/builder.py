@@ -14,7 +14,7 @@ def dataset_builder(args, config):
     dataset = build_dataset_from_cfg(config._base_, config.others)
     shuffle = config.others.subset == 'train'
 
-    if config._base_.NAME in ['VC','KITTI']:
+    if config._base_.NAME in ['VC','LIDAR']:
         if config.others.fixed_input:
             print('Using fixed input model')
             collate_fn = dataset.collate_fixed_input
