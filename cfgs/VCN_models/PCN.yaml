@@ -12,23 +12,23 @@ scheduler: {
 }}
 
 dataset : {
-  train : { _base_: cfgs/dataset_configs/vc_cars.yaml, 
-            others: {subset: 'train', fixed_input: True, num_inputs: 2}},
-  val : { _base_: cfgs/dataset_configs/vc_cars.yaml, 
-            others: {subset: 'val', fixed_input: True}},
-  test : { _base_: cfgs/dataset_configs/kitti_cars.yaml, 
+  train : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
+            others: {subset: 'train', fixed_input: True}},
+  val : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
+            others: {subset: 'test', fixed_input: True}},
+  test : { _base_: /VCN/cfgs/dataset_configs/lidar_cars.yaml, 
             others: {subset: 'test', fixed_input: True}}
 }
             
 model : { 
-  NAME: PCN, 
+  NAME: VCN_VC, 
   num_pred: 16384, 
   encoder_channel: 1024,
-  losses: ['coarse', 'coarse_1', 'teacher_loss_0','student_loss_0', 'teacher_loss_1','student_loss_1'],  
-  loss_weights: [100, 100, 100, 100, 100, 100]
+  losses: ['fine', 'coarse'],  
+  loss_weights: [1,1]
 }
 total_bs : 16
 step_per_update : 1
 max_epoch : 30
 
-consider_metric: CDL1
+consider_metric: CDL2

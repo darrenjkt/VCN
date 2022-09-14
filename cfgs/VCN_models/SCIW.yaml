@@ -12,11 +12,11 @@ scheduler: {
 }}
 
 dataset : {
-  train : { _base_: cfgs/dataset_configs/vc_cars.yaml, 
+  train : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
             others: {subset: 'train', fixed_input: True, num_inputs: 2}},
-  val : { _base_: cfgs/dataset_configs/vc_cars.yaml, 
+  val : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
             others: {subset: 'val', fixed_input: True}},
-  test : { _base_: cfgs/dataset_configs/kitti_cars.yaml, 
+  test : { _base_: /VCN/cfgs/dataset_configs/lidar_cars.yaml, 
             others: {subset: 'test', fixed_input: True}}
 }
             

@@ -3,9 +3,10 @@ import torch.nn as nn
 from .build import MODELS
 from utils import misc
 from extensions.chamfer_dist import ChamferDistanceL2
-from utils.transform import rot_from_heading
+from utils.transform import rot_from_heading, rotate_points_along_z
+from utils.losses import geodesic_distance
 from utils.bbox_utils import get_dims, get_bbox_from_keypoints
-from utils.transform import cn_to_vc_rt, vc_to_cn_rt
+from utils.sampling import get_partial_mesh_batch
 
 def normalize_vector( v, return_mag =False):
     batch=v.shape[0]
@@ -45,20 +46,6 @@ def compute_rotation_matrix_from_ortho6d(ortho6d):
     z = z.view(-1,3,1)
     matrix = torch.cat((x,y,z), 2) #batch*3*3
     return matrix
-
-def compute_geodesic_distance_from_two_matrices(m1, m2):
-    batch=m1.shape[0]
-    m = torch.bmm(m1, m2.transpose(1,2)) #batch*3*3
-    
-    cos = (  m[:,0,0] + m[:,1,1] + m[:,2,2] - 1 )/2
-    cos = torch.min(cos, torch.autograd.Variable(torch.ones(batch).cuda()) )
-    cos = torch.max(cos, torch.autograd.Variable(torch.ones(batch).cuda())*-1 )
-    
-    
-    theta = torch.acos(cos)
-    
-    #theta = torch.min(theta, 2*np.pi - theta)    
-    return theta
 
 def conv_layers(layer_dims, last_as_conv=False):
     
@@ -117,202 +104,110 @@ class FeatureEncoder(nn.Module):
         
         return feature_global
 
-def compute_ensemble_loss(gt_boxes, pred, t_weight=10, r_weight=1):
-    """
-    gt_boxes size (B 7)
-    pred size (N_branch B 9)
-    """
-    gt_trans = gt_boxes[:,:3] # B 3
-    gt_rotm = rot_from_heading(gt_boxes[:,-1]) # B 3 3 
-    n_branches, batch_size, _ = pred.shape
     
-    # Here we calculate a single loss value for each branch, then select the min
-    pred_trans = pred[:,:,:3]
-    branch_trans_loss = torch.square(pred_trans-gt_trans).mean(dim=2).sum(dim=1) # N_branch
-    
-    pred_rotm = [compute_rotation_matrix_from_ortho6d(p[:,3:9]) for p in pred]
-    branch_rotm_loss = torch.stack([compute_geodesic_distance_from_two_matrices(prot, gt_rotm) for prot in pred_rotm]).sum(dim=1) # N_branch
-    
-    # Loss for each branch, shape (N_branch) 
-    branch_loss = t_weight*branch_trans_loss + r_weight*branch_rotm_loss
-    min_loss_idx = torch.argmin(branch_loss, dim=0)
-    min_loss_mask = torch.zeros(branch_loss.shape).cuda() # one hot vector
-    min_loss_mask[min_loss_idx] = 1
-    branch_mask = torch.tile(min_loss_mask.view(n_branches,1,1), (1,batch_size,3))
-    
-    # Calculate loss only for best branch
-    trans_l2 = nn.MSELoss(reduction='none')
-    trans_loss = trans_l2(pred_trans, gt_trans.tile([n_branches,1,1])) * branch_mask
-    rotm_loss = (branch_rotm_loss * min_loss_mask)
-    ens_loss = t_weight*trans_loss.mean() + r_weight*rotm_loss.mean()
-    
-    return ens_loss, min_loss_idx  
-    
-@MODELS.register_module()    
+@MODELS.register_module()
 class VCN_VC(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.number_fine = config.num_pred
-        self.encoder_channel = config.encoder_channel
-        num_pose_candidates = 4
+        self.sel_k = 30 # select nearest 30 points to each input point
         
-        grid_size = 4 # set default
-        self.grid_size = grid_size
-        assert self.number_fine % grid_size**2 == 0
-        self.number_coarse = self.number_fine // (grid_size ** 2 )
-        
-  # Branch 0
-        self.encoder_0 = FeatureEncoder([3, 128, 256, 512, 512, self.number_coarse])        
-        self.pose_ensemble0 = nn.ModuleList([nn.Sequential(
-            nn.Linear(1024, 512),
+        self.number_coarse = 1024
+        self.pose_encoder = nn.Sequential(
+            nn.Conv1d(3,64,1),            
             nn.LeakyReLU(),
-            nn.Linear(512, 256),
+            nn.Conv1d(64,128,1),
             nn.LeakyReLU(),
-            nn.Linear(256, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 9)            
-        ) for i in range(num_pose_candidates)])        
-        self.distilled_pose0 = nn.Sequential(
-            nn.Linear(1024, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(),
-            nn.Linear(256, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 9)           
+            nn.Conv1d(128,1024,1),
+            nn.AdaptiveMaxPool1d(output_size=1)
         )
-        self.shape_decoder_0 = fc_layers([1024, 1024, 1024, 3*self.number_coarse], last_as_linear=True) # canonical shape
+        self.pose_fc = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, 9)            
+        )
 
-        # Branch 1
-        self.encoder_1 = FeatureEncoder([3, 128, 256, 512, 512, self.number_coarse])    
-        self.pose_ensemble1 = nn.ModuleList([nn.Sequential(
-            nn.Linear(1024, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(),
-            nn.Linear(256, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 9)            
-        ) for i in range(num_pose_candidates)])        
-        self.distilled_pose1 = nn.Sequential(
-            nn.Linear(1024, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(),
-            nn.Linear(256, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 9)           
-        )
+        self.encoder = FeatureEncoder([3, 128, 256, 512, 512, self.number_coarse])
+        self.shape_fc = fc_layers([1024, 1024, 1024, 3*self.number_coarse], last_as_linear=True) # canonical shape
         
+        self.final_conv = nn.Sequential(
+            nn.Conv1d(1024+3+2,512,1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(512,512,1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(512,3,1)
+        )
         self.build_loss_func()
 
     def build_loss_func(self):
         self.loss_coarse = ChamferDistanceL2()
-        self.loss_coarse1 = ChamferDistanceL2()
-        self.loss_translation = nn.MSELoss(reduction='none')
+        self.loss_partial = ChamferDistanceL2()
+        self.loss_translation = nn.SmoothL1Loss(reduction='none')
         self.loss_dims = nn.SmoothL1Loss(reduction='none')    
 
     def get_loss(self, ret_dict, in_dict):     
-        if in_dict['training']: 
-            gt_boxes_0 = in_dict['gt_boxes_0']
-            gt_boxes_1 = in_dict['gt_boxes_1']
-            complete_0 = in_dict['complete_0']
-            complete_1 = in_dict['complete_1']            
-        else:
-            complete_0 = in_dict['complete']
-            gt_boxes_0 = in_dict['gt_boxes']
-        
-        loss_dict = {}                
-        pred_box = get_bbox_from_keypoints(ret_dict['coarse'], gt_boxes_0) # B 7        
-        loss_dict['dims'] = self.loss_dims(gt_boxes_0[:,3:6].cuda(), pred_box[:,3:6]).mean()
+        gt_boxes = in_dict['gt_boxes']
 
-        # ensemble loss        
-        loss_dict['teacher_loss_0'], loss_dict['student_loss_0'] = self.get_student_teacher_loss(gt_boxes_0, ret_dict, branch_id=0)        
+        loss_dict = {}        
+        pred_box = get_bbox_from_keypoints(ret_dict['coarse'], gt_boxes) # B 7        
+        loss_dict['dims'] = self.loss_dims(gt_boxes[:,3:6].cuda(), pred_box[:,3:6]).mean()
+
+        # Translation loss
+        gt_centres = gt_boxes[:,:3]
+        loss_dict['translation'] = self.loss_translation(gt_centres.cuda(), ret_dict['reg_centre']).mean()
         
-        # cd loss
-        ds_complete_0 = misc.fps(complete_0, ret_dict['coarse'].shape[1])
-        loss_dict['coarse'] = self.loss_coarse(ret_dict['coarse'], ds_complete_0)
+        # Rotation loss
+        gt_headings = gt_boxes[:,-1]
+        gt_rmats = rot_from_heading(gt_headings)
+        theta = geodesic_distance(ret_dict['reg_rot'], gt_rmats)
+        loss_dict['rotation'] = theta.mean()
+
+        # Coarse loss - downsample complete with fps
         if in_dict['training']:
-            ds_complete_1 = misc.fps(complete_1, ret_dict['coarse_1'].shape[1])
-            loss_dict['coarse_1'] = self.loss_coarse1(ret_dict['coarse_1'], ds_complete_1)
-            loss_dict['teacher_loss_1'], loss_dict['student_loss_1'] = self.get_student_teacher_loss(gt_boxes_1, ret_dict, branch_id=1)        
-        
+            ds_complete = misc.fps(in_dict['complete'], ret_dict['coarse'].shape[1])
+            loss_dict['coarse'] = self.loss_coarse(ret_dict['coarse'], ds_complete)            
+
+            pred_surface = get_partial_mesh_batch( in_dict['input'], ret_dict['coarse'], k=self.sel_k)
+            gt_surface = get_partial_mesh_batch( in_dict['input'], ds_complete, k=self.sel_k)
+            loss_dict['partial'] = self.loss_partial(pred_surface, gt_surface)                        
+
         return loss_dict
+
+    def forward(self, in_dict):
+        ret = {}
+
+        bs , n , _ = in_dict['input'].shape
+        pc = in_dict['input']
     
-    def get_student_teacher_loss(self, gt_boxes, ret_dict, branch_id, t_weight=10, r_weight=1):
-        pose_candidates = ret_dict[f'pose_candidates_{branch_id}']
-        
-        teacher_loss, best_branch_idx = compute_ensemble_loss(gt_boxes, pose_candidates)
-        teacher_branch_output = pose_candidates[best_branch_idx,:,:] # B 9
-        teacher_trans = teacher_branch_output[:,:3]
-        teacher_rotm = compute_rotation_matrix_from_ortho6d(teacher_branch_output[:,3:9])                
-        
-        l_student_trans = self.loss_translation(ret_dict[f'reg_centre_{branch_id}'], teacher_trans).mean()
-        l_student_rot = compute_geodesic_distance_from_two_matrices(ret_dict[f'reg_rot_{branch_id}'], teacher_rotm).mean()
-        student_loss = t_weight*l_student_trans + r_weight*l_student_rot   
-        
-        return teacher_loss, student_loss
+        # Frustum angle is anti-clockwise about x axis (since +y is to the left, following RHS convention)
+        frustum_angle = torch.atan2(in_dict['input'][:,:,1].mean(dim=1), in_dict['input'][:,:,0].mean(dim=1))
+        pc_fview = rotate_points_along_z(in_dict['input'], -frustum_angle)
     
-    def pose_ensemble(self, pc_mean, encoder_feat, branch_id):
-        if branch_id == 0:
-            pose_ensemble = self.pose_ensemble0
-            distilled_pose_fc = self.distilled_pose0
-        elif branch_id == 1:
-            pose_ensemble = self.pose_ensemble1
-            distilled_pose_fc = self.distilled_pose1
-
-        pose_candidates = torch.stack([pe(encoder_feat) for pe in pose_ensemble], dim=0) # B 9 for each
-        pose_candidates[:,:,:3] += pc_mean.unsqueeze(0) # N_branch B 3        
-        distilled_pose = distilled_pose_fc(encoder_feat) # B 9
-        trans = pc_mean.unsqueeze(1) + distilled_pose[:,:3].unsqueeze(1)
-        rot6d = distilled_pose[:,3:9]
-        rot_mat = compute_rotation_matrix_from_ortho6d(rot6d)
-        return rot_mat, trans.squeeze(1), pose_candidates
-
-    def forward(self, in_dict):        
+        # Centre pointcloud on mean of the points
+        pts_mean = pc_fview.mean(dim=1).unsqueeze(1)
+        pts_meancentered = pc_fview - pts_mean
+    
+        # Regress the relative pose
+        pose_feat = self.pose_encoder(pts_meancentered.permute(0,2,1)).view(bs, -1)  # B 256 n
+        rel_pose = self.pose_fc(pose_feat)
+        trans = rel_pose[:,:3].unsqueeze(1) # B 1 3
+        centre = pts_mean + trans
+        rot6d = rel_pose[:,3:9]
+        rot_mat = compute_rotation_matrix_from_ortho6d(rot6d)     
         
-        ret = {}        
-        if in_dict['training']:
-            pc_0 = in_dict['input_0'] # B 1024 3
-            pc_1 = in_dict['input_1'] # B 1024 3
-        else:
-            pc_0 = in_dict['input']
-
-        bs , n , _ = pc_0.shape 
+        pc_cn = torch.matmul(pc_fview - centre, rot_mat.permute(0,2,1))     
+    
+        # encoder
+        feature_global = self.encoder(pc_cn.permute(0,2,1), n)  # B 1024
+        coarse = self.shape_fc(feature_global).reshape(-1,self.number_coarse,3) # B coarse_pts 3            
+        coarse_vc = torch.matmul(coarse, rot_mat) + centre
         
-
-        # Branch 0
-        pc0_mean = pc_0.mean(dim=1)  
-        z0 = self.encoder_0((pc_0 - pc0_mean.unsqueeze(1)).permute(0,2,1), n)
-        shape = self.shape_decoder_0(z0).reshape(-1,self.number_coarse,3)
-        ret['reg_rot_0'], ret['reg_centre_0'], ret['pose_candidates_0'] = self.pose_ensemble(pc0_mean, z0, branch_id=0)        
+        # Bring points back to sensor view
+        ret['coarse'] = rotate_points_along_z(coarse_vc.contiguous(), frustum_angle)
         
-        pc0_vc = cn_to_vc_rt(shape, ret['reg_rot_0'], ret['reg_centre_0'])
-        ret['coarse'] = pc0_vc.contiguous()
-
-        if in_dict['training']:
-            pc1_mean = pc_1.mean(dim=1)
-            z1 = self.encoder_1((pc_1 - pc1_mean.unsqueeze(1)).permute(0,2,1), n)
-            ret['reg_rot_1'], ret['reg_centre_1'], ret['pose_candidates_1'] = self.pose_ensemble(pc1_mean, z1, branch_id=1)      
-            pc1_vc = cn_to_vc_rt(shape, ret['reg_rot_1'], ret['reg_centre_1'])  
-            ret['coarse_1'] = pc1_vc.contiguous()        
-
-        # # Siamese branch 0
-        # pc0_mean = pc_0.mean(dim=1)       
-        # feature_global_0 = self.encoder_0((pc_0 - pc0_mean.unsqueeze(1) ).permute(0,2,1), n)  # B 1024
-        # ret['reg_rot_0'], ret['reg_centre_0'], ret['pose_candidates_0'] = self.pose_ensemble(pc0_mean, feature_global_0, branch_id=0)        
-        
-        # shape = self.shape_fc(feature_global_0).reshape(-1,self.number_coarse,3) # B coarse_pts 3
-        # pc0_cn = cn_to_vc_rt(shape, ret['reg_rot_0'], ret['reg_centre_0'])
-        # ret['coarse'] = pc0_cn.contiguous()
-        
-        # # Siamese branch 1                
-        # if in_dict['training']:
-        #     pc1_mean = pc_1.mean(dim=1)
-        #     feature_global_1 = self.encoder_1((pc_1 - pc1_mean.unsqueeze(1)).permute(0,2,1), n)  # B 1024
-        #     ret['reg_rot_1'], ret['reg_centre_1'], ret['pose_candidates_1'] = self.pose_ensemble(pc1_mean, feature_global_1, branch_id=1)                    
-        #     pc1_cn = cn_to_vc_rt(shape, ret['reg_rot_1'], ret['reg_centre_1'])
-        #     ret['coarse_1'] = pc1_cn.contiguous()        
-
-
+        # Bring regressed frustum view rotation/centroid to sensor view rotation/centroid
+        ret['reg_rot'] = torch.matmul(rot_mat, rot_from_heading(frustum_angle))
+        ret['reg_centre'] = rotate_points_along_z(centre, frustum_angle).squeeze(1)
+                
         return ret

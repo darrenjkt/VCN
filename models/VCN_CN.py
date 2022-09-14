@@ -8,6 +8,7 @@ from utils.transform import rot_from_heading, rotate_points_along_z
 from utils.losses import geodesic_distance
 from utils.bbox_utils import get_dims, get_bbox_from_keypoints
 from utils.sampling import get_partial_mesh_batch
+from utils.transform import vc_to_cn, cn_to_vc, normalize_scale, restore_scale
 
 def fc_layers(layer_dims, last_as_linear=True):
     

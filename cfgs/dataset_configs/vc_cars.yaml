@@ -1,5 +1,5 @@
 NAME: VC
-DATA_PATH: data/VC/vc-surface_nviews-20
+DATA_PATH: data/VC/vc-shapenet
 N_POINTS: 16384
 USE_NVIEWS_PER_MODEL: 20
 TOTAL_NVIEWS_PER_MODEL: 20

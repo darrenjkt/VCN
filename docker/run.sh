@@ -32,4 +32,4 @@ $VISUAL \
 --net=host \
 --shm-size=16G \
 --workdir=/VCN \
-darrenjkt/pointr:v1.0
+darrenjkt/vcn:1.0

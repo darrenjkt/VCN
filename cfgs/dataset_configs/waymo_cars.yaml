@@ -1,6 +1,0 @@
-NAME: LIDAR
-DATA_PATH: data/VC/waymo
-
-# /PoinTr/data/KITTI/3d_object_detection/exported/vc
-# /PoinTr/data/nuscenes/custom_t4025-v3980/exported/vc
-# /PoinTr/data/waymo/custom_1000/exported/vc

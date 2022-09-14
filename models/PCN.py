@@ -147,7 +147,7 @@ def compute_ensemble_loss(gt_boxes, pred, t_weight=10, r_weight=1):
     
     return ens_loss, min_loss_idx  
     
-class VCN_VC(nn.Module):
+class PCN(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.number_fine = config.num_pred

@@ -73,7 +73,7 @@ def compute_rotation_matrix_from_ortho6d(ortho6d):
     return matrix
     
 @MODELS.register_module()    
-class VCN_VC(nn.Module):
+class AtlasVC(nn.Module):
     def __init__(self, config):
         super().__init__()
         # Less patches/number_fine increases the runtime of this model            

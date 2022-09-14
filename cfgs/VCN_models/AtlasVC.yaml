@@ -15,20 +15,20 @@ dataset : {
   train : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
             others: {subset: 'train', fixed_input: True}},
   val : { _base_: /VCN/cfgs/dataset_configs/vc_cars.yaml, 
-            others: {subset: 'val', fixed_input: True}},
-  test : { _base_: /VCN/cfgs/dataset_configs/kitti_cars.yaml, 
+            others: {subset: 'test', fixed_input: True}},
+  test : { _base_: /VCN/cfgs/dataset_configs/lidar_cars.yaml, 
             others: {subset: 'test', fixed_input: True}}
 }
             
 model : { 
-  NAME: PartialSC_VC, 
+  NAME: AtlasVC, 
   num_pred: 16384, 
   encoder_channel: 1024,
   losses: ['partial', 'coarse','translation','rotation','dims'],  
-  loss_weights: [1, 1, 10, 1, 1]
+  loss_weights: [100, 100, 1000, 100, 100]
 }
 total_bs : 16
 step_per_update : 1
-max_epoch : 50
+max_epoch : 30
 
-consider_metric: CDL1
+consider_metric: CDL2
