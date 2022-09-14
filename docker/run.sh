@@ -12,12 +12,7 @@ ENVS="  --env=NVIDIA_VISIBLE_DEVICES=$GPU_ID
 
 # Modify these paths as necessary to mount the data
 VOLUMES="       --volume=$DATA_PATH/shapenet/VC:/VCN/data/VC
-                --volume=$DATA_PATH/shapenet:/VCN/data/shapenet
-                --volume=$CODE_PATH:/VCN
-                --volume=$DATA_PATH/kitti:/VCN/data/KITTI
-                --volume=$DATA_PATH/nuscenes:/VCN/data/nuscenes
-                --volume=$DATA_PATH/waymo:/VCN/data/waymo
-                --volume=$DATA_PATH/baraja:/VCN/data/baraja"
+                --volume=$CODE_PATH:/VCN"
 
 # Setup visualization for point cloud demos
 VISUAL="        --env=DISPLAY

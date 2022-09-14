@@ -31,17 +31,13 @@ class VC(data.Dataset):
         self.partial_points_path = str(self.data_dir / self.subset/ 'partial' / '%s' / '%03d.pcd')
         self.complete_points_path = str(self.data_dir / self.subset / 'surface' / '%s' / '%03d.pcd')        
         
-        if (self.data_dir / self.subset / 'label.pkl').exists():
-            self.label_path = self.data_dir / self.subset / 'label.pkl'
-            with open(self.label_path, 'rb') as fp:
-                self.labels = pickle.load(fp)
-        else:
-            self.label_path = str(self.data_dir / self.subset / 'label' / '%s' / '%03d.pkl')        
-            self.labels = None
+        self.label_path = self.data_dir / self.subset / 'label.pkl'
+        with open(self.label_path, 'rb') as fp:
+            self.labels = pickle.load(fp)
 
         self.model_id_path = self.data_dir / self.subset / 'model_ids.txt'        
         self.npoints = config.N_POINTS        
-        self.nviews = config.USE_NVIEWS_PER_MODEL if self.subset == 'train' else 6
+        self.nviews = config.USE_NVIEWS_PER_MODEL if self.subset == 'train' else 15
 
         with open(self.model_id_path) as f:
             self.model_ids = [line.split('\n')[0] for line in f.readlines()]
@@ -55,15 +51,11 @@ class VC(data.Dataset):
         else:
             transform_list = transforms.test
 
-        # Not going to bother with siamese setup for now... but if want to try, then fix this
-        # if self.fixed_input:
-        #     resample = {'callback': 'ResamplePoints',
-        #          'parameters': {'n_points':1024}, # test vs 2048 when final model
-        #          'objects': ['partial']}
-        #     if self.num_inputs > 1:
-        #         resample['objects'] = [f'partial_{i}' for i in range(self.num_inputs)]
-
-        #     transform_list.append(resample)
+        if self.num_inputs > 1:
+            for tf in transform_list:
+                print('tf callback = ', tf['callback'])
+                if tf['callback'] == "ResamplePoints":
+                    tf['objects'] = [f'partial_{i}' for i in range(self.num_inputs)]
 
         return data_transforms.Compose(transform_list)
 
@@ -82,14 +74,14 @@ class VC(data.Dataset):
                     'model_id': model_id,
                     'partial_path': self.partial_points_path % (model_id, i),
                     'complete_path': self.complete_points_path % (model_id, i),
-                    'label_path': self.label_path % (model_id, i) if self.labels is None else (model_id, i)
+                    'label_path': (model_id, i)
                 }           
                 if self.num_inputs > 1:
-                    for i in range(1, self.num_inputs):
-                        rand_view = np.random.randint(0,40)
-                        data_input[f'partial_path_{i}'] = self.partial_points_path % (model_id, rand_view)
-                        data_input[f'complete_path_{i}'] = self.complete_points_path % (model_id, rand_view)
-                        data_input[f'label_path_{i}'] = self.label_path % (model_id, rand_view)  if self.labels is None else (model_id, rand_view)
+                    for i in range(1, self.num_inputs):                        
+                        rand_view = random.sample(list(range(20)), self.num_inputs)
+                        data_input[f'partial_path_{i}'] = self.partial_points_path % (model_id, rand_view[i])
+                        data_input[f'complete_path_{i}'] = self.complete_points_path % (model_id, rand_view[i])
+                        data_input[f'label_path_{i}'] = (model_id, rand_view[i])
                 file_list.append(data_input)
 
         print_log('Complete collecting files for %s. Total views: %d' % (self.subset, len(file_list)), logger='VC_DATASET')
@@ -105,19 +97,12 @@ class VC(data.Dataset):
         data['complete_0'] = np.asarray(o3d.io.read_point_cloud(sample['complete_path']).points)        
         t1 = time.time()
 
-        if self.labels is None:
-            with open(sample['label_path'], 'rb') as f:
-                data['label_0'] = pickle.load(f)
-                data['label_0']['num_pts'] = data['partial_0'].shape[0]
-        else:
-            mid = sample['label_path'][0]
-            viewidx = sample['label_path'][1]
-            data['label_0'] = self.labels[mid][viewidx]
-            data['label_0']['num_pts'] = data['partial_0'].shape[0]
+        mid = sample['label_path'][0]
+        viewidx = sample['label_path'][1]
+        data['label_0'] = self.labels[mid][viewidx]
+        data['label_0']['num_pts'] = data['partial_0'].shape[0]
 
         t2 = time.time()
-
-        # print(f'loaded one set - partial/complete in {t1-t0:0.3f}s, label in {t2-t1:0.3f}s')
 
         if self.num_inputs > 1:
             for i in range(1, self.num_inputs):

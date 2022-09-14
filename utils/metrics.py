@@ -26,7 +26,7 @@ class Metrics(object):
         'init_value': 0
     }, {
         'name': 'CDL1',
-        'enabled': True,
+        'enabled': False,
         'eval_func': 'cls._get_chamfer_distancel1',
         'eval_object': ChamferDistanceL1(ignore_zeros=True),
         'is_greater_better': False,
@@ -54,7 +54,7 @@ class Metrics(object):
         'init_value': 32767
     }, {
         'name': 'OUT_OF_BOX',
-        'enabled': True,
+        'enabled': False,
         'eval_func': 'cls._get_oob_error',
         'is_greater_better': False,
         'init_value': 32767
@@ -72,7 +72,7 @@ class Metrics(object):
         'init_value': 0
     }, {
         'name': 'IOU_BEV',
-        'enabled': False,
+        'enabled': True,
         'eval_func': 'cls._get_box_iou_bev',
         'is_greater_better': True,
         'init_value': 0
@@ -111,7 +111,7 @@ class Metrics(object):
     levels['L1'] = {'min':201, 'max': 1000000} # arbitrary max
     levels['L2'] = {'min':81, 'max':200}
     levels['L3'] = {'min':31, 'max':80}
-    levels['L4'] = {'min':5, 'max':30}
+    # levels['L4'] = {'min':5, 'max':30}
 
     @classmethod
     def get(cls, pred, gt, eval_by_num_pts=True):
@@ -123,7 +123,7 @@ class Metrics(object):
                 if 'min_pts' in item:
                     _values.append(eval_func(pred, gt, min_pts=item['min_pts'], max_pts=item['max_pts']))
                 else:
-                    _values.append(eval_func(pred, gt, min_pts=None, max_pts=None))                    
+                    _values.append(eval_func(pred, gt, min_pts=30, max_pts=16384))                    
             else:
                 _values.append(eval_func(pred, gt))
 
@@ -165,7 +165,7 @@ class Metrics(object):
 
 
     @classmethod
-    def _get_chamfer_distancel1(cls, ret_dict, in_dict, min_pts=None, max_pts=None):
+    def _get_chamfer_distancel1(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):
         if in_dict['complete'].shape[1] == 1:
             return -1
 
@@ -187,7 +187,7 @@ class Metrics(object):
             return -1
 
     @classmethod
-    def _get_chamfer_distancel2(cls, ret_dict, in_dict, min_pts=None, max_pts=None):
+    def _get_chamfer_distancel2(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):
         if in_dict['complete'].shape[1] == 1:
             return -1
 
@@ -208,7 +208,7 @@ class Metrics(object):
             return -1
 
     @classmethod
-    def _get_chamfer_distancel1_partial(cls, ret_dict, in_dict, sel_k=30, min_pts=None, max_pts=None):
+    def _get_chamfer_distancel1_partial(cls, ret_dict, in_dict, sel_k=30, min_pts=30, max_pts=16384):
         if in_dict['complete'].shape[1] == 1:
             return -1
 
@@ -236,7 +236,7 @@ class Metrics(object):
             return -1
 
     @classmethod
-    def _get_chamfer_distancel2_partial(cls, ret_dict, in_dict, sel_k=30, min_pts=None, max_pts=None):
+    def _get_chamfer_distancel2_partial(cls, ret_dict, in_dict, sel_k=30, min_pts=30, max_pts=16384):
         if in_dict['complete'].shape[1] == 1:
             return -1
 
@@ -264,7 +264,7 @@ class Metrics(object):
             return -1
 
     @classmethod
-    def _get_oob_error(cls, ret_dict, in_dict, ds_pts=200, min_pts=None, max_pts=None):
+    def _get_oob_error(cls, ret_dict, in_dict, ds_pts=200, min_pts=30, max_pts=16384):
         
         if (min_pts is not None) and (max_pts is not None):
             mask = (in_dict['num_pts'] >= min_pts) & (in_dict['num_pts'] <= max_pts)
@@ -285,7 +285,7 @@ class Metrics(object):
         #     return -1
 
     @classmethod
-    def _get_iou_3d_error(cls, ret_dict, in_dict, min_pts=None, max_pts=None):        
+    def _get_iou_3d_error(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):        
         """
         Get iou3d mse error for predicted iou vs actual iou
         """
@@ -308,7 +308,7 @@ class Metrics(object):
             return -1
 
     @classmethod
-    def _get_translation_error(cls, ret_dict, in_dict, min_pts=None, max_pts=None):        
+    def _get_translation_error(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):        
         """
         Get rotation error using geodesic distance.
 
@@ -331,7 +331,7 @@ class Metrics(object):
             return -1
 
     @classmethod
-    def _get_rotation_error(cls, ret_dict, in_dict, min_pts=None, max_pts=None):        
+    def _get_rotation_error(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):        
         """
         Get rotation error using geodesic distance.
 
@@ -355,7 +355,7 @@ class Metrics(object):
             return -1
 
     @classmethod
-    def _get_axis_alignment(cls, ret_dict, in_dict, min_pts=None, max_pts=None):
+    def _get_axis_alignment(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):
         """
         Check if generated car is parallel with gt bounding box.
         Use PCA to determine major axis of car. We don't check
@@ -384,7 +384,7 @@ class Metrics(object):
         return angle_to_vehicle_axis.mean().item()
 
     @classmethod
-    def _get_coherence(cls, ret_dict, in_dict, min_pts=None, max_pts=None):
+    def _get_coherence(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):
         """
         Coherence describes how much noise there is in the shape generation.
         Incoherent (i.e. noisy) points lead to low explained variance by PCA.
@@ -408,7 +408,7 @@ class Metrics(object):
         return torch.clamp(explained_var, max=1.0).item()
 
     @classmethod
-    def _get_box_iou3d(cls, ret_dict, in_dict, min_pts=None, max_pts=None):
+    def _get_box_iou3d(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):
         if (min_pts is not None) and (max_pts is not None):
             mask = (in_dict['num_pts'] >= min_pts) & (in_dict['num_pts'] <= max_pts)
             pred_bbox = ret_dict['pred_box'][mask]
@@ -423,7 +423,7 @@ class Metrics(object):
         return iou3d.diag().mean().item()
 
     @classmethod
-    def _get_box_iou_bev(cls, ret_dict, in_dict, min_pts=None, max_pts=None):
+    def _get_box_iou_bev(cls, ret_dict, in_dict, min_pts=30, max_pts=16384):
         if (min_pts is not None) and (max_pts is not None):
             mask = (in_dict['num_pts'] >= min_pts) & (in_dict['num_pts'] <= max_pts)
             pred_bbox = ret_dict['pred_box'][mask]

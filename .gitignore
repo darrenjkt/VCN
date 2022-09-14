@@ -140,4 +140,6 @@ dmypy.json
 experiments
 upload*
 *.out
+data
 archived
+*debug*
