@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from .build import MODELS
-from utils import misc
 from extensions.chamfer_dist import ChamferDistanceL2
 from utils.transform import rot_from_heading
 from utils.bbox_utils import get_dims, get_bbox_from_keypoints
@@ -210,7 +209,6 @@ class VCN_VC(nn.Module):
         self.loss_coarse = ChamferDistanceL2()
         self.loss_coarse1 = ChamferDistanceL2()
         self.loss_translation = nn.MSELoss(reduction='none')
-        self.loss_dims = nn.SmoothL1Loss(reduction='none')    
 
     def get_loss(self, ret_dict, in_dict):     
         if in_dict['training']: 
@@ -222,19 +220,15 @@ class VCN_VC(nn.Module):
             complete_0 = in_dict['complete']
             gt_boxes_0 = in_dict['gt_boxes']
         
-        loss_dict = {}                
-        pred_box = get_bbox_from_keypoints(ret_dict['coarse'], gt_boxes_0) # B 7        
-        loss_dict['dims'] = self.loss_dims(gt_boxes_0[:,3:6].cuda(), pred_box[:,3:6]).mean()
+        loss_dict = {}                        
 
         # ensemble loss        
         loss_dict['teacher_loss_0'], loss_dict['student_loss_0'] = self.get_student_teacher_loss(gt_boxes_0, ret_dict, branch_id=0)        
         
         # cd loss
-        ds_complete_0 = misc.fps(complete_0, ret_dict['coarse'].shape[1])
-        loss_dict['coarse'] = self.loss_coarse(ret_dict['coarse'], ds_complete_0)
+        loss_dict['coarse'] = self.loss_coarse(ret_dict['coarse'], complete_0)
         if in_dict['training']:
-            ds_complete_1 = misc.fps(complete_1, ret_dict['coarse_1'].shape[1])
-            loss_dict['coarse_1'] = self.loss_coarse1(ret_dict['coarse_1'], ds_complete_1)
+            loss_dict['coarse_1'] = self.loss_coarse1(ret_dict['coarse_1'], complete_1)
             loss_dict['teacher_loss_1'], loss_dict['student_loss_1'] = self.get_student_teacher_loss(gt_boxes_1, ret_dict, branch_id=1)        
         
         return loss_dict

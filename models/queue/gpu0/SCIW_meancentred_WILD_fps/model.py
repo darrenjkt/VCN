@@ -5,7 +5,6 @@ from utils import misc
 from extensions.chamfer_dist import ChamferDistanceL2
 from utils.transform import rot_from_heading
 from utils.bbox_utils import get_dims, get_bbox_from_keypoints
-from utils.transform import cn_to_vc_rt, vc_to_cn_rt
 
 def normalize_vector( v, return_mag =False):
     batch=v.shape[0]
@@ -117,7 +116,7 @@ class FeatureEncoder(nn.Module):
         
         return feature_global
 
-def compute_ensemble_loss(gt_boxes, pred, t_weight=10, r_weight=1):
+def compute_ensemble_loss(gt_boxes, pred):
     """
     gt_boxes size (B 7)
     pred size (N_branch B 9)
@@ -134,7 +133,7 @@ def compute_ensemble_loss(gt_boxes, pred, t_weight=10, r_weight=1):
     branch_rotm_loss = torch.stack([compute_geodesic_distance_from_two_matrices(prot, gt_rotm) for prot in pred_rotm]).sum(dim=1) # N_branch
     
     # Loss for each branch, shape (N_branch) 
-    branch_loss = t_weight*branch_trans_loss + r_weight*branch_rotm_loss
+    branch_loss = branch_rotm_loss + branch_trans_loss
     min_loss_idx = torch.argmin(branch_loss, dim=0)
     min_loss_mask = torch.zeros(branch_loss.shape).cuda() # one hot vector
     min_loss_mask[min_loss_idx] = 1
@@ -144,11 +143,11 @@ def compute_ensemble_loss(gt_boxes, pred, t_weight=10, r_weight=1):
     trans_l2 = nn.MSELoss(reduction='none')
     trans_loss = trans_l2(pred_trans, gt_trans.tile([n_branches,1,1])) * branch_mask
     rotm_loss = (branch_rotm_loss * min_loss_mask)
-    ens_loss = t_weight*trans_loss.mean() + r_weight*rotm_loss.mean()
+    ens_loss = trans_loss.mean() + rotm_loss.mean()
     
     return ens_loss, min_loss_idx  
     
-@MODELS.register_module()    
+@MODELS.register_module()
 class VCN_VC(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -161,7 +160,7 @@ class VCN_VC(nn.Module):
         assert self.number_fine % grid_size**2 == 0
         self.number_coarse = self.number_fine // (grid_size ** 2 )
         
-  # Branch 0
+        # Branch 0
         self.encoder_0 = FeatureEncoder([3, 128, 256, 512, 512, self.number_coarse])        
         self.pose_ensemble0 = nn.ModuleList([nn.Sequential(
             nn.Linear(1024, 512),
@@ -181,8 +180,8 @@ class VCN_VC(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(64, 9)           
         )
-        self.shape_decoder_0 = fc_layers([1024, 1024, 1024, 3*self.number_coarse], last_as_linear=True) # canonical shape
-
+        self.shape_fc = fc_layers([1024, 1024, 1024, 3*self.number_coarse], last_as_linear=True) # canonical shape
+        
         # Branch 1
         self.encoder_1 = FeatureEncoder([3, 128, 256, 512, 512, self.number_coarse])    
         self.pose_ensemble1 = nn.ModuleList([nn.Sequential(
@@ -204,6 +203,9 @@ class VCN_VC(nn.Module):
             nn.Linear(64, 9)           
         )
         
+        a = torch.linspace(-0.05, 0.05, steps=grid_size, dtype=torch.float).view(1, grid_size).expand(grid_size, grid_size).reshape(1, -1)
+        b = torch.linspace(-0.05, 0.05, steps=grid_size, dtype=torch.float).view(grid_size, 1).expand(grid_size, grid_size).reshape(1, -1)
+        self.folding_seed = torch.cat([a, b], dim=0).view(1, 2, grid_size ** 2).cuda() # 1 2 S
         self.build_loss_func()
 
     def build_loss_func(self):
@@ -216,8 +218,8 @@ class VCN_VC(nn.Module):
         if in_dict['training']: 
             gt_boxes_0 = in_dict['gt_boxes_0']
             gt_boxes_1 = in_dict['gt_boxes_1']
-            complete_0 = in_dict['complete_0']
-            complete_1 = in_dict['complete_1']            
+            complete_0 = in_dict['complete_0']    
+            complete_1 = in_dict['complete_1']        
         else:
             complete_0 = in_dict['complete']
             gt_boxes_0 = in_dict['gt_boxes']
@@ -239,7 +241,7 @@ class VCN_VC(nn.Module):
         
         return loss_dict
     
-    def get_student_teacher_loss(self, gt_boxes, ret_dict, branch_id, t_weight=10, r_weight=1):
+    def get_student_teacher_loss(self, gt_boxes, ret_dict, branch_id):
         pose_candidates = ret_dict[f'pose_candidates_{branch_id}']
         
         teacher_loss, best_branch_idx = compute_ensemble_loss(gt_boxes, pose_candidates)
@@ -247,11 +249,42 @@ class VCN_VC(nn.Module):
         teacher_trans = teacher_branch_output[:,:3]
         teacher_rotm = compute_rotation_matrix_from_ortho6d(teacher_branch_output[:,3:9])                
         
-        l_student_trans = self.loss_translation(ret_dict[f'reg_centre_{branch_id}'], teacher_trans).mean()
-        l_student_rot = compute_geodesic_distance_from_two_matrices(ret_dict[f'reg_rot_{branch_id}'], teacher_rotm).mean()
-        student_loss = t_weight*l_student_trans + r_weight*l_student_rot   
+        student_trans = self.loss_translation(ret_dict[f'reg_centre_{branch_id}'], teacher_trans).mean()
+        student_rot = compute_geodesic_distance_from_two_matrices(ret_dict[f'reg_rot_{branch_id}'], teacher_rotm).mean()
+        student_loss = student_trans + student_rot   
         
         return teacher_loss, student_loss
+    
+    def forward(self, in_dict):
+        from utils.transform import cn_to_vc_rt, vc_to_cn_rt
+        
+        ret = {}        
+        if in_dict['training']:
+            pc_0 = in_dict['input_0'] # B 1024 3
+            pc_1 = in_dict['input_1'] # B 1024 3
+        else:
+            pc_0 = in_dict['input']
+
+        bs , n , _ = pc_0.shape 
+        
+        # Siamese branch 0
+        pc0_mean = pc_0.mean(dim=1)       
+        feature_global_0 = self.encoder_0((pc_0 - pc0_mean.unsqueeze(1) ).permute(0,2,1), n)  # B 1024
+        ret['reg_rot_0'], ret['reg_centre_0'], ret['pose_candidates_0'] = self.pose_ensemble(pc0_mean, feature_global_0, branch_id=0)        
+        
+        shape = self.shape_fc(feature_global_0).reshape(-1,self.number_coarse,3) # B coarse_pts 3
+        pc0_cn = cn_to_vc_rt(shape, ret['reg_rot_0'], ret['reg_centre_0'])
+        ret['coarse'] = pc0_cn.contiguous()
+        
+        # Siamese branch 1                
+        if in_dict['training']:
+            pc1_mean = pc_1.mean(dim=1)
+            feature_global_1 = self.encoder_1((pc_1 - pc1_mean.unsqueeze(1)).permute(0,2,1), n)  # B 1024
+            ret['reg_rot_1'], ret['reg_centre_1'], ret['pose_candidates_1'] = self.pose_ensemble(pc1_mean, feature_global_1, branch_id=1)                    
+            pc1_cn = cn_to_vc_rt(shape, ret['reg_rot_1'], ret['reg_centre_1'])
+            ret['coarse_1'] = pc1_cn.contiguous()        
+        
+        return ret
     
     def pose_ensemble(self, pc_mean, encoder_feat, branch_id):
         if branch_id == 0:
@@ -264,55 +297,7 @@ class VCN_VC(nn.Module):
         pose_candidates = torch.stack([pe(encoder_feat) for pe in pose_ensemble], dim=0) # B 9 for each
         pose_candidates[:,:,:3] += pc_mean.unsqueeze(0) # N_branch B 3        
         distilled_pose = distilled_pose_fc(encoder_feat) # B 9
-        trans = pc_mean.unsqueeze(1) + distilled_pose[:,:3].unsqueeze(1)
+        trans = pc_mean.unsqueeze(1) + distilled_pose[:,:3].unsqueeze(1) # B 1 3
         rot6d = distilled_pose[:,3:9]
         rot_mat = compute_rotation_matrix_from_ortho6d(rot6d)
         return rot_mat, trans.squeeze(1), pose_candidates
-
-    def forward(self, in_dict):        
-        
-        ret = {}        
-        if in_dict['training']:
-            pc_0 = in_dict['input_0'] # B 1024 3
-            pc_1 = in_dict['input_1'] # B 1024 3
-        else:
-            pc_0 = in_dict['input']
-
-        bs , n , _ = pc_0.shape 
-        
-
-        # Branch 0
-        pc0_mean = pc_0.mean(dim=1)  
-        z0 = self.encoder_0((pc_0 - pc0_mean.unsqueeze(1)).permute(0,2,1), n)
-        shape = self.shape_decoder_0(z0).reshape(-1,self.number_coarse,3)
-        ret['reg_rot_0'], ret['reg_centre_0'], ret['pose_candidates_0'] = self.pose_ensemble(pc0_mean, z0, branch_id=0)        
-        
-        pc0_vc = cn_to_vc_rt(shape, ret['reg_rot_0'], ret['reg_centre_0'])
-        ret['coarse'] = pc0_vc.contiguous()
-
-        if in_dict['training']:
-            pc1_mean = pc_1.mean(dim=1)
-            z1 = self.encoder_1((pc_1 - pc1_mean.unsqueeze(1)).permute(0,2,1), n)
-            ret['reg_rot_1'], ret['reg_centre_1'], ret['pose_candidates_1'] = self.pose_ensemble(pc1_mean, z1, branch_id=1)      
-            pc1_vc = cn_to_vc_rt(shape, ret['reg_rot_1'], ret['reg_centre_1'])  
-            ret['coarse_1'] = pc1_vc.contiguous()        
-
-        # # Siamese branch 0
-        # pc0_mean = pc_0.mean(dim=1)       
-        # feature_global_0 = self.encoder_0((pc_0 - pc0_mean.unsqueeze(1) ).permute(0,2,1), n)  # B 1024
-        # ret['reg_rot_0'], ret['reg_centre_0'], ret['pose_candidates_0'] = self.pose_ensemble(pc0_mean, feature_global_0, branch_id=0)        
-        
-        # shape = self.shape_fc(feature_global_0).reshape(-1,self.number_coarse,3) # B coarse_pts 3
-        # pc0_cn = cn_to_vc_rt(shape, ret['reg_rot_0'], ret['reg_centre_0'])
-        # ret['coarse'] = pc0_cn.contiguous()
-        
-        # # Siamese branch 1                
-        # if in_dict['training']:
-        #     pc1_mean = pc_1.mean(dim=1)
-        #     feature_global_1 = self.encoder_1((pc_1 - pc1_mean.unsqueeze(1)).permute(0,2,1), n)  # B 1024
-        #     ret['reg_rot_1'], ret['reg_centre_1'], ret['pose_candidates_1'] = self.pose_ensemble(pc1_mean, feature_global_1, branch_id=1)                    
-        #     pc1_cn = cn_to_vc_rt(shape, ret['reg_rot_1'], ret['reg_centre_1'])
-        #     ret['coarse_1'] = pc1_cn.contiguous()        
-
-
-        return ret

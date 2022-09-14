@@ -1,5 +1,5 @@
-from tools.runner import run_net, run_vc
-from tools.runner import test_net, test_net_vc
+from tools.runner import run_vc
+from tools.runner import test_net_vc
 from utils import parser, dist_utils, misc
 from utils.logger import *
 from utils.config import *
