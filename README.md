@@ -11,6 +11,10 @@ VCN is a PointNet based model that can complete the point clouds of object as ca
 pip install -e . --user
 ```
 
+## Datasets
+- **VC-ShapeNet** [[download](https://unisyd-my.sharepoint.com/:u:/g/personal/julie_berrioperez_sydney_edu_au/EeB6XBooMkdArv1xgRVMja0BcVvt63C2vzHTi-PjAnpQzQ?e=iyhPWj)]: Viewer-centred surface car dataset. Cars were positioned in viewer-centred frame using waymo labels and raycasted to obtain occluded cars in realistic scenes.
+- **Lidar test set** [[download](https://unisyd-my.sharepoint.com/:u:/g/personal/julie_berrioperez_sydney_edu_au/Ect6piVGprBJsrymXueeHooBiQAn7z2hxUelpECDQOyS3Q?e=H6Jc58)]: We randomly select 5000 cars from KITTI, nuScenes and Waymo each for evaluation
+
 ## Usage
 We provide a [Demo notebook](https://github.com/darrenjkt/VCN/blob/main/demo.ipynb) with some demo data for quickstart.
 
@@ -23,6 +27,7 @@ bash ./scripts/dist_train.sh <NUM_GPU> <port> \
     [--resume] \
     [--start_ckpts <path>] \
     [--val_freq <int>]
+    
 # or just use DataParallel (DP)
 bash ./scripts/train.sh <GPUIDS> \
     --config <config> \
