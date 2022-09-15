@@ -11,7 +11,7 @@ ENVS="  --env=NVIDIA_VISIBLE_DEVICES=$GPU_ID
         --env=NVIDIA_DRIVER_CAPABILITIES=all"
 
 # Modify these paths as necessary to mount the data
-VOLUMES="       --volume=$DATA_PATH/vc-shapenet:/VCN/data/vc-shapenet
+VOLUMES="       --volume=$DATA_PATH:/VCN/data
                 --volume=$CODE_PATH:/VCN"
 
 # Setup environment for pop-up visualization of point clouds
