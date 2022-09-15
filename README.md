@@ -2,6 +2,8 @@
 
 This is code for the viewer-centred completion network, VCN used in [SEE-VCN](https://github.com/darrenjkt/SEE-VCN). 
 
+VCN is a PointNet based model that can complete the point clouds of object as captured in the wild by a lidar sensor. The coordinates of such objects are relative to the view-point of the sensor frame, which we call viewer-centred coordinates. Given an object's points, we can estimate it's pose and complete the surface without requiring pre-canonicalization like other point cloud completion methods. VCN runs at 0.32ms/car. 
+
 ![architecture](data/vcn_architecture.png)
 
 ## Install
