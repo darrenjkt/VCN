@@ -3,8 +3,7 @@
 # Edit these paths
 DATA_PATH="/user/data"
 CODE_PATH="/user/code/VCN"
-
-GPU_ID="0,1"
+GPU_ID="0"
 
 ENVS="  --env=NVIDIA_VISIBLE_DEVICES=$GPU_ID
         --env=CUDA_VISIBLE_DEVICES=$GPU_ID
