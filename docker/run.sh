@@ -1,20 +1,20 @@
 #!/bin/bash
 
-# Edit these paths. The volume mounting below assumes your datasets are e.g. data/Baraja, data/KITTI etc.
-DATA_PATH="/mnt/big-data/darren/data"
-CODE_PATH="/mnt/big-data/darren/code/VCN"
+# Edit these paths
+DATA_PATH="/user/data"
+CODE_PATH="/user/code/VCN"
 
-GPU_ID="0,1,2"
+GPU_ID="0,1"
 
 ENVS="  --env=NVIDIA_VISIBLE_DEVICES=$GPU_ID
         --env=CUDA_VISIBLE_DEVICES=$GPU_ID
         --env=NVIDIA_DRIVER_CAPABILITIES=all"
 
 # Modify these paths as necessary to mount the data
-VOLUMES="       --volume=$DATA_PATH/shapenet/VC:/VCN/data/VC
+VOLUMES="       --volume=$DATA_PATH/vc-shapenet:/VCN/data/vc-shapenet
                 --volume=$CODE_PATH:/VCN"
 
-# Setup visualization for point cloud demos
+# Setup environment for pop-up visualization of point clouds
 VISUAL="        --env=DISPLAY
                 --env=QT_X11_NO_MITSHM=1
                 --volume=/tmp/.X11-unix:/tmp/.X11-unix"
